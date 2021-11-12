@@ -72,7 +72,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
 
                         tracing::debug!(header = header);
 
-                        let map = serde_yaml::from_str::<Map<String, Value>>(&header)?;
+                        let map = dbg!(serde_yaml::from_str::<Map<String, Value>>(&header))?;
 
                         if let Some(draft) = map.get("draft").and_then(|v| v.as_bool()) {
                             meta.4 = draft;
@@ -80,13 +80,25 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                                 return Ok(());
                             }
                         }
-                        if let Some(uuid) = map.get("uuid").and_then(|v| v.as_str()) {
+                        if let Some(uuid) = map
+                            .get("uuid")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                        {
                             meta.0.replace(uuid.to_string());
                         }
-                        if let Some(title) = map.get("title").and_then(|v| v.as_str()) {
+                        if let Some(title) = map
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                        {
                             conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "t", title, 0])?;
                         }
-                        if let Some(summary) = map.get("summary").and_then(|v| v.as_str()) {
+                        if let Some(summary) = map
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                        {
                             conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "s", summary, 0])?;
                         }
 
@@ -104,7 +116,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                                 if !meta.1.is_empty() {
                                     if meta.1 == "p" {
                                         // dbg!(&meta.1, &meta.2, &meta.3);
-                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2, meta.3.last().unwrap().1])?;
+                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2.trim_start().trim_end(), meta.3.last().unwrap().1])?;
                                         meta.2.clear();
                                     } else {
                                         let p = meta
@@ -113,7 +125,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                                             .rfind(|(l, _)| l < &v.level)
                                             .cloned()
                                             .unwrap_or_default();
-                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2, p.1])?;
+                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2.trim_start().trim_end(), p.1])?;
                                         meta.3.push((v.level, conn.last_insert_rowid()));
                                         meta.2.clear();
                                     }
@@ -171,7 +183,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                     rusqlite::params![
                         meta.0.clone().unwrap(),
                         meta.1,
-                        meta.2,
+                        meta.2.trim_start().trim_end(),
                         meta.3.last().unwrap().1
                     ],
                 )?;
@@ -181,7 +193,12 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                 let p = meta.3.iter().rfind(|(l, _)| l < &v.0);
                 conn.execute(
                     "insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![meta.0.clone().unwrap(), meta.1, meta.2, p.unwrap().1],
+                    rusqlite::params![
+                        meta.0.clone().unwrap(),
+                        meta.1,
+                        meta.2.trim_start().trim_end(),
+                        p.unwrap().1
+                    ],
                 )?;
                 meta.3.push((
                     meta.1

@@ -10,10 +10,12 @@ anyhow = "1.0.45"
 clap = "3.0.0-beta.5"
 comrak = "0.12.1"
 glob = "0.3.0"
+hyper = { version = "0.14.14", features = ["http2", "tcp", "server", "stream"] }
 rusqlite = "0.26.1"
 serde = "1.0.130"
 serde_json = "1.0.69"
 serde_yaml = "0.8.21"
+tokio = { version = "1.13.0", features = ["macros", "rt", "rt-multi-thread"] }
 tracing = "0.1.29"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "ansi"] }
 uuid = { version = "0.8.2", features = ["v4"] }
