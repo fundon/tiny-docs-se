@@ -15,7 +15,7 @@ hyper = { version = "0.14.14", features = ["http1", "tcp", "server", "stream"] }
 r2d2 = "0.8.9"
 r2d2_sqlite = "0.19.0"
 rusqlite = { version = "0.26.1", features = ["load_extension", "vtab", "bundled"] }
-serde = "1.0.130"
+serde = { version = "1.0.130", features = ["serde_derive"] }
 serde_json = "1.0.69"
 serde_yaml = "0.8.21"
 tokio = { version = "1.13.0", features = ["macros", "rt", "rt-multi-thread"] }
