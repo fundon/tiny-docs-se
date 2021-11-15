@@ -42,7 +42,7 @@ async fn hello(
     }
 
     let conn = pool.get()?;
-    let mut stmt = conn.prepare(r#"SELECT kind, simple_snippet(d, 2, '[', ']', '...', 10) from d where content match simple_query(?1) AND kind = ?2"#)?;
+    let mut stmt = conn.prepare(r#"SELECT kind, simple_snippet(d, 2, '[', ']', '...', 10) from d where content match simple_query(?1) AND kind = ?2 ORDER BY bm25(content)"#)?;
     let rows: Vec<(String, String)> = stmt
         .query_map([search.unwrap(), kind], |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -59,7 +59,7 @@ pub async fn execute(args: &ArgMatches) -> Result<()> {
     let manager = SqliteConnectionManager::file("docs.db").with_init(move |conn| {
         // let manager = SqliteConnectionManager::memory().with_init(move |conn| {
         unsafe {
-            let path = root.join("libsimple.dylib");
+            let path = root.join("libsimple");
             tracing::trace!("{:?}", path);
             conn.load_extension(path, None)?;
         }
@@ -84,7 +84,7 @@ pub async fn execute(args: &ArgMatches) -> Result<()> {
         }
     });
 
-    let addr = ([127, 0, 0, 1], args.value_of_t("port")?).into();
+    let addr = ([0, 0, 0, 0], args.value_of_t("port")?).into();
 
     let server = Server::bind(&addr).serve(make_svc);
 
