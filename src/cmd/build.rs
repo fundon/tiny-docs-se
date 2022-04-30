@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 use rusqlite::{params, Connection};
 
-// (uuid, kind, content, (level, parent id), draft)
+// (gid, tag, content, (level, parent id), draft)
 #[derive(Debug)]
 struct Meta(Option<String>, String, String, Vec<(u32, i64)>, bool);
 
@@ -25,7 +25,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
     for entry in glob::glob(root.join("**/*.md").to_str().ok_or(anyhow!("Missing"))?)? {
         let path = entry?;
 
-        if path.starts_with(root.join(".github")) || path.starts_with(root.join("_index.md")) {
+        if path.starts_with(root.join(".github")) || path.starts_with(root.join("TOC.md")) {
             continue;
         }
 
@@ -92,14 +92,14 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                             .and_then(|v| v.as_str())
                             .filter(|v| !v.is_empty())
                         {
-                            conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "t", title, 0])?;
+                            // conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "t", title, 0])?;
                         }
                         if let Some(summary) = map
                             .get("summary")
                             .and_then(|v| v.as_str())
                             .filter(|v| !v.is_empty())
                         {
-                            conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "s", summary, 0])?;
+                            // conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), "s", summary, 0])?;
                         }
 
                         tracing::debug!("{:?}", map);
@@ -113,6 +113,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                         match n {
                             NodeValue::Heading(ref mut v) => {
                                 let t = format!("h{}", v.level);
+                                /*
                                 if !meta.1.is_empty() {
                                     if meta.1 == "p" {
                                         // dbg!(&meta.1, &meta.2, &meta.3);
@@ -132,6 +133,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                                 }
 
                                 meta.1 = t;
+                                */
                             }
                             NodeValue::Text(ref mut v) => {
                                 let text = String::from_utf8_lossy(&v);
@@ -146,6 +148,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                             }
                             _ => {
                                 if meta.1 != "p" {
+                                /*
                                     let v: u32 = meta
                                         .1
                                         .chars()
@@ -162,6 +165,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                                     meta.3.push((v, conn.last_insert_rowid()));
                                     meta.2.clear();
                                     meta.1 = "p".to_string();
+                                    */
                                 } else {
                                     meta.2.push_str("\n");
                                 }
@@ -177,6 +181,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
         )?;
 
         if !meta.4 {
+            /*
             if meta.1 == "p" {
                 conn.execute(
                     "insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)",
@@ -210,6 +215,7 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                 ));
                 meta.2.clear();
             }
+            */
         }
     }
 
