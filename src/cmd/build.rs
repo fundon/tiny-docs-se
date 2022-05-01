@@ -1,66 +1,112 @@
 use anyhow::{anyhow, Result};
-use clap::ArgMatches;
-use std::{env, fs};
+use comrak::nodes::NodeLink;
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 use comrak::nodes::{AstNode, NodeValue};
-use comrak::{format_html, parse_document, Arena, ComrakOptions};
+use comrak::{parse_document, Arena, ComrakOptions};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_json::{Map, Value};
 
 use rusqlite::{params, Connection};
 
-// (gid, tag, content, (level, parent id), draft)
-#[derive(Debug)]
-struct Meta(Option<String>, String, String, Vec<(u32, i64)>, bool);
+static R: Lazy<Regex> = Lazy::new(|| Regex::new(r"^([^/]+)/([^/]+)(.*)$").unwrap());
 
-pub fn execute(args: &ArgMatches) -> Result<()> {
-    let root = env::current_dir()?;
+// (tag, content, gid|path)
+#[derive(Debug, Clone)]
+struct Meta(u32, String, String);
+
+pub fn execute(root: PathBuf) -> Result<()> {
+    let mut db_path = env::current_dir()?;
+    tracing::info!(root = root.to_str());
+
+    let caps = R.captures(root.to_str().unwrap()).unwrap();
+    let locale = caps.get(1).map_or("cn", |m| m.as_str());
+    let version = caps.get(2).map_or("v1.0", |m| m.as_str());
+    let path = caps.get(3).map_or("", |m| m.as_str());
+
+    tracing::info!(locale = locale, version = version, path = path);
 
     let mut options = ComrakOptions::default();
 
     options.extension.front_matter_delimiter = Some("---".to_owned());
     options.extension.table = true;
 
-    let conn = rusqlite::Connection::open("docs.db")?;
+    if !db_path.ends_with("search") {
+        db_path.push("search");
+    }
+
+    let conn = rusqlite::Connection::open(db_path.join("docs.db"))?;
+
+    unsafe {
+        conn.load_extension(db_path.join("libsimple"), None)?;
+    }
+
+    conn.execute(
+        "DELETE FROM docs WHERE locale = ?1 AND version = ?2",
+        params![locale, version],
+    )?;
+    conn.execute(
+        "DELETE FROM d WHERE locale = ?1 AND version = ?2",
+        params![locale, version],
+    )?;
 
     for entry in glob::glob(root.join("**/*.md").to_str().ok_or(anyhow!("Missing"))?)? {
         let path = entry?;
 
-        if path.starts_with(root.join(".github")) || path.starts_with(root.join("TOC.md")) {
+        if path.starts_with(root.join(".github")) || path.ends_with(root.join("TOC.md")) {
             continue;
         }
 
-        tracing::info!(path = path.to_str());
+        let gid_path = path.clone();
+        let mut gid = gid_path
+            .strip_prefix(root.clone())
+            .ok()
+            .and_then(|p| p.to_str())
+            .and_then(|p| p.strip_suffix(".md"))
+            .unwrap();
 
+        gid = gid.trim_end_matches("README").trim_end_matches("/");
+
+        tracing::info!(path = path.to_str(), gid = gid);
+
+        let mut draft = false;
+        // let gid = path.clone().to_str().unwrap().to_string();
         let file = fs::read(path)?;
         let md = String::from_utf8_lossy(&file);
 
         let arena = Arena::new();
         let root = parse_document(&arena, &md, &options);
 
-        let mut meta = Meta(None, "".to_string(), "".to_string(), Vec::new(), false);
+        let mut metas = Vec::new();
+        let mut meta = Meta(0, "".to_string(), gid.to_string());
 
         fn iter_nodes<'a, F>(
             node: &'a AstNode<'a>,
             f: &F,
-            conn: &Connection,
+            draft: &mut bool,
             meta: &mut Meta,
+            metas: &mut Vec<Meta>,
         ) -> Result<()>
         where
-            F: Fn(&'a AstNode<'a>, &Connection, &mut Meta) -> Result<()>,
+            F: Fn(&'a AstNode<'a>, &mut bool, &mut Meta, &mut Vec<Meta>) -> Result<()>,
         {
-            f(node, conn, meta)?;
-            for c in node.children() {
-                iter_nodes(c, f, conn, meta)?
+            f(node, draft, meta, metas)?;
+            for m in node.children() {
+                iter_nodes(m, f, draft, meta, metas)?
             }
             Ok(())
         }
 
         iter_nodes(
             root,
-            &|node, conn, meta| {
+            &|node, draft, meta, metas| {
                 match &mut node.data.borrow_mut().value {
                     NodeValue::Document => {
-                        meta.0.replace(uuid::Uuid::new_v4().to_string());
+                        // meta.0.replace(uuid::Uuid::new_v4().to_string());
+                        // meta.0 = path.to_str().unwrap().to_string();
                     }
                     NodeValue::FrontMatter(ref mut v) => {
                         let text = String::from_utf8_lossy(&v);
@@ -74,18 +120,8 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
 
                         let map = dbg!(serde_yaml::from_str::<Map<String, Value>>(&header))?;
 
-                        if let Some(draft) = map.get("draft").and_then(|v| v.as_bool()) {
-                            meta.4 = draft;
-                            if draft {
-                                return Ok(());
-                            }
-                        }
-                        if let Some(uuid) = map
-                            .get("uuid")
-                            .and_then(|v| v.as_str())
-                            .filter(|v| !v.is_empty())
-                        {
-                            meta.0.replace(uuid.to_string());
+                        if let Some(d) = map.get("draft").and_then(|v| v.as_bool()) {
+                            *draft = d;
                         }
                         if let Some(title) = map
                             .get("title")
@@ -109,115 +145,79 @@ pub fn execute(args: &ArgMatches) -> Result<()> {
                     NodeValue::HtmlBlock(ref mut v) => {
                         v.literal.clear();
                     }
-                    n => {
-                        match n {
-                            NodeValue::Heading(ref mut v) => {
-                                let t = format!("h{}", v.level);
-                                /*
-                                if !meta.1.is_empty() {
-                                    if meta.1 == "p" {
-                                        // dbg!(&meta.1, &meta.2, &meta.3);
-                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2.trim_start().trim_end(), meta.3.last().unwrap().1])?;
-                                        meta.2.clear();
-                                    } else {
-                                        let p = meta
-                                            .3
-                                            .iter()
-                                            .rfind(|(l, _)| l < &v.level)
-                                            .cloned()
-                                            .unwrap_or_default();
-                                        conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2.trim_start().trim_end(), p.1])?;
-                                        meta.3.push((v.level, conn.last_insert_rowid()));
-                                        meta.2.clear();
-                                    }
-                                }
-
-                                meta.1 = t;
-                                */
+                    n => match n {
+                        NodeValue::Heading(ref mut v) => {
+                            if meta.0 != 0 {
+                                metas.push(meta.clone());
+                                meta.1.clear();
                             }
-                            NodeValue::Text(ref mut v) => {
-                                let text = String::from_utf8_lossy(&v);
-                                meta.2.push_str(&text);
-                            }
-                            NodeValue::Code(ref mut v) => {
-                                let text = String::from_utf8_lossy(&v.literal);
-                                meta.2.push_str(&text);
-                            }
-                            NodeValue::TableCell => {
-                                meta.2.push_str("\n");
-                            }
-                            _ => {
-                                if meta.1 != "p" {
-                                /*
-                                    let v: u32 = meta
-                                        .1
-                                        .chars()
-                                        .last()
-                                        .and_then(|v| v.to_string().parse().ok())
-                                        .unwrap();
-                                    let p = meta
-                                        .3
-                                        .iter()
-                                        .rfind(|(l, _)| l < &v)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    conn.execute("insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)", params![meta.0.clone().unwrap(), meta.1, meta.2, p.1])?;
-                                    meta.3.push((v, conn.last_insert_rowid()));
-                                    meta.2.clear();
-                                    meta.1 = "p".to_string();
-                                    */
-                                } else {
-                                    meta.2.push_str("\n");
-                                }
+                            meta.0 = v.level;
+                        }
+                        NodeValue::Text(ref mut v) => {
+                            meta.1.push_str(&String::from_utf8_lossy(&v));
+                        }
+                        NodeValue::Code(ref mut v) => {
+                            meta.1.push_str(&String::from_utf8_lossy(&v.literal));
+                        }
+                        NodeValue::TableCell => {
+                            meta.1.push_str("\n");
+                        }
+                        NodeValue::Link(ref mut v) => {
+                            meta.1.push_str(&String::from_utf8_lossy(&v.title));
+                        }
+                        NodeValue::HtmlInline(ref mut v) => {
+                            if meta.0 != 7 {
+                                meta.1.clear();
                             }
                         }
-                    }
+                        NodeValue::Paragraph => {
+                            if meta.0 != 7 {
+                                metas.push(meta.clone());
+                                meta.0 = 7;
+                                meta.1.clear();
+                            }
+                        }
+                        _ => {
+                            if meta.0 == 7 {
+                                meta.1.push_str("\n");
+                            } else {
+                                metas.push(meta.clone());
+                                meta.0 = 7;
+                                meta.1.clear();
+                            }
+                        }
+                    },
                 }
 
                 Ok(())
             },
-            &conn,
+            &mut draft,
             &mut meta,
+            &mut metas,
         )?;
 
-        if !meta.4 {
-            /*
-            if meta.1 == "p" {
-                conn.execute(
-                    "insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![
-                        meta.0.clone().unwrap(),
-                        meta.1,
-                        meta.2.trim_start().trim_end(),
-                        meta.3.last().unwrap().1
-                    ],
-                )?;
-                meta.2.clear();
-            } else {
-                let v = meta.3.last().cloned().unwrap_or_default();
-                let p = meta.3.iter().rfind(|(l, _)| l < &v.0);
-                conn.execute(
-                    "insert into docs(uuid, kind, content, parent) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![
-                        meta.0.clone().unwrap(),
-                        meta.1,
-                        meta.2.trim_start().trim_end(),
-                        p.unwrap().1
-                    ],
-                )?;
-                meta.3.push((
-                    meta.1
-                        .chars()
-                        .last()
-                        .and_then(|v| v.to_string().parse().ok())
-                        .unwrap(),
-                    conn.last_insert_rowid(),
-                ));
-                meta.2.clear();
+        metas.push(meta.clone());
+
+        let mut pid = 0;
+
+        if !draft {
+            for Meta(tag, content, gid) in metas {
+                if tag > 0 {
+                    pid = conn.query_row("select id from docs where gid = ?1 and tag <= ?2 and locale = ?3 and version = ?4 order by id desc limit 1", params![
+        gid, tag - 1, locale, version
+                            ], |row| row.get(0)).unwrap_or_default();
+                }
+                conn.execute("insert into docs(pid, gid, tag, content, locale, version) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![
+                            pid, gid, tag, content, locale, version
+                        ])?;
             }
-            */
         }
     }
+
+    conn.execute(
+        "INSERT INTO d SELECT * FROM docs WHERE locale = ?1 AND version = ?2",
+        params![locale, version],
+    )?;
 
     Ok(())
 }

@@ -1,38 +1,50 @@
-use anyhow::Result;
-use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg};
+use std::path::PathBuf;
+
+use clap::{AppSettings, Parser, Subcommand};
+
+#[derive(Parser)]
+#[clap(author, version, about)]
+#[clap(global_setting(AppSettings::PropagateVersion))]
+#[clap(global_setting(AppSettings::UseLongFormatForHelpSubcommand))]
+#[clap(setting(AppSettings::SubcommandRequiredElseHelp))]
+struct Cli {
+    #[clap(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Build sqlite db indexes from markdown files
+    Build {
+        #[clap(short, long)]
+        #[clap(parse(try_from_str))]
+        path: PathBuf,
+    },
+    /// Run a search server for web
+    Server {
+        #[clap(short, long)]
+        #[clap(parse(try_from_str))]
+        #[clap(default_value_t = 3030)]
+        port: u16,
+    },
+}
 
 mod cmd;
 
-const VERSION: &str = concat!("v", crate_version!());
-
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init()
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    let matches = App::new(crate_name!())
-        .version(VERSION)
-        .author(crate_authors!())
-        .about(crate_description!())
-        // .arg("-c, --config=[FILE] 'Sets a custom config file'")
-        .subcommand(
-            App::new("build").about("build sqlite db indexes from markdown files"), // .arg("-d, --debug 'Print debug information'"),
-        )
-        .subcommand(
-            App::new("server")
-                .about("run a search server for web")
-                .arg(Arg::from("-p, --port=[PORT] 'Server port'").default_value("3000")),
-        )
-        .get_matches();
+    let cli = Cli::parse();
 
-    match matches.subcommand() {
-        Some(("build", args)) => cmd::build::execute(args),
-        Some(("server", args)) => {
+    match &cli.command {
+        Commands::Build { path } => cmd::build::execute(path.to_path_buf()),
+        Commands::Server { port } => {
             use tokio::runtime::Builder;
             let rt = Builder::new_multi_thread().enable_all().build()?;
-            rt.block_on(cmd::server::execute(args))
+            rt.block_on(cmd::server::execute(*port))
         }
-        _ => Ok(()),
     }
 }
