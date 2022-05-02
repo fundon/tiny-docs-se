@@ -6,7 +6,7 @@ Generates indexes from markdown files.
 
 * HTTP2 and TLS
 * sqlite3
-* https://github.com/wangfenjin/simple
+* [libsimple](https://github.com/wangfenjin/simple)
 
 ## Commands
 
