@@ -4,10 +4,14 @@ authors = ["Fangdun Tsai <cfddream@gmail.com>"]
 description = "Docs Search Engine"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/fundon/tiny-docs-se"
 readme = "README.md"
 edition = "2021"
-
 exclude = ["src", "README.md", "LICENSE-*"]
+
+[[bin]]
+name = "tiny-docs-se"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
