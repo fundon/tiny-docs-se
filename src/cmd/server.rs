@@ -1,16 +1,10 @@
-//! ```
-//! curl -X POST 127.0.0.1:3000 -H "Content-Type: application/json" -d '{"search": "监控", "locale": "zh", "version": "v2.0"}'
-//! curl -X POST 127.0.0.1:3000 -H "Content-Type: application/json" -d '{"search": "监控", "locale": "zh", "version": "v2.0"}'
-//! curl -X POST 127.0.0.1:3000 -H "Content-Type: application/json" -d '{"search": "监控", "locale": "zh", "version": "v2.0"}'
-//! curl -X POST 127.0.0.1:3000 -H "Content-Type: application/json" -d '{"search": "监控", "locale": "zh", "version": "v2.0"}'
-//! curl -X POST 127.0.0.1:3000 -H "Content-Type: application/json" -d '{"search": "监控", "locale": "zh", "version": "v2.0"}'
-//! ```
-
 use std::convert::Infallible;
 
 use anyhow::Result;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{body::to_bytes, Body, Request, Response, Server};
+use hyper::{
+    service::{make_service_fn, service_fn},
+    {body::to_bytes, Body, Request, Response, Server},
+};
 use r2d2_sqlite::{rusqlite, SqliteConnectionManager};
 use serde::Deserialize;
 
@@ -32,7 +26,7 @@ async fn hello(
     let locale = data.locale.unwrap_or_else(|| "cn".to_string());
     let version = data.version.unwrap_or_else(|| "v1.0".to_string());
     let p = data.p.unwrap_or_default().max(1);
-    let l = data.l.unwrap_or_default();
+    let l = data.l.unwrap_or_else(|| 10);
 
     tracing::info!(
         "search = {:?}, locale = {}, version = {}, page = {}, page_size = {}",
@@ -103,11 +97,7 @@ async fn hello(
 }
 
 pub async fn execute(port: u16) -> Result<()> {
-    let mut root = std::env::current_dir()?;
-
-    if !root.ends_with("search") {
-        root.push("search");
-    }
+    let root = std::env::current_dir()?;
 
     tracing::info!(root = root.to_str());
 

@@ -1,42 +1,30 @@
+use std::{env, fs, path::PathBuf};
+
 use anyhow::{anyhow, Result};
-use comrak::nodes::NodeLink;
-use std::env;
-use std::fs;
-use std::path::PathBuf;
-
-use comrak::nodes::{AstNode, NodeValue};
-use comrak::{parse_document, Arena, ComrakOptions};
-use once_cell::sync::Lazy;
-use regex::Regex;
+use comrak::{
+    nodes::{AstNode, NodeValue},
+    {parse_document, Arena, ComrakOptions},
+};
+use rusqlite::params;
 use serde_json::{Map, Value};
-
-use rusqlite::{params, Connection};
-
-static R: Lazy<Regex> = Lazy::new(|| Regex::new(r"^([^/]+)/([^/]+)(.*)$").unwrap());
 
 // (tag, content, gid|path)
 #[derive(Debug, Clone)]
 struct Meta(u32, String, String);
 
-pub fn execute(root: PathBuf) -> Result<()> {
-    let mut db_path = env::current_dir()?;
-    tracing::info!(root = root.to_str());
+pub fn execute(root: PathBuf, locale: String, version: String) -> Result<()> {
+    let db_path = env::current_dir()?;
 
-    let caps = R.captures(root.to_str().unwrap()).unwrap();
-    let locale = caps.get(1).map_or("cn", |m| m.as_str());
-    let version = caps.get(2).map_or("v1.0", |m| m.as_str());
-    let path = caps.get(3).map_or("", |m| m.as_str());
-
-    tracing::info!(locale = locale, version = version, path = path);
+    tracing::info!(
+        root = root.to_str(),
+        locale = locale.as_str(),
+        version = version.as_str(),
+    );
 
     let mut options = ComrakOptions::default();
 
     options.extension.front_matter_delimiter = Some("---".to_owned());
     options.extension.table = true;
-
-    if !db_path.ends_with("search") {
-        db_path.push("search");
-    }
 
     let conn = rusqlite::Connection::open(db_path.join("docs.db"))?;
 

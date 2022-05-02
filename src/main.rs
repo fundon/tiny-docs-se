@@ -1,12 +1,10 @@
 use std::path::PathBuf;
 
-use clap::{AppSettings, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[clap(author, version, about)]
-#[clap(global_setting(AppSettings::PropagateVersion))]
-#[clap(global_setting(AppSettings::UseLongFormatForHelpSubcommand))]
-#[clap(setting(AppSettings::SubcommandRequiredElseHelp))]
+#[clap(propagate_version = true)]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,
@@ -18,13 +16,25 @@ enum Commands {
     Build {
         #[clap(short, long)]
         #[clap(parse(try_from_str))]
+        #[clap(help("path"))]
         path: PathBuf,
+
+        #[clap(short, long)]
+        #[clap(parse(try_from_str))]
+        #[clap(help("locale"))]
+        locale: String,
+
+        #[clap(short, long)]
+        #[clap(parse(try_from_str))]
+        #[clap(help("version"))]
+        version: String,
     },
     /// Run a search server for web
     Server {
         #[clap(short, long)]
         #[clap(parse(try_from_str))]
         #[clap(default_value_t = 3030)]
+        #[clap(help("port"))]
         port: u16,
     },
 }
@@ -39,12 +49,16 @@ fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Build { path } => cmd::build::execute(path.to_path_buf()),
+    match cli.command {
+        Commands::Build {
+            path,
+            locale,
+            version,
+        } => cmd::build::execute(path, locale, version),
         Commands::Server { port } => {
             use tokio::runtime::Builder;
             let rt = Builder::new_multi_thread().enable_all().build()?;
-            rt.block_on(cmd::server::execute(*port))
+            rt.block_on(cmd::server::execute(port))
         }
     }
 }

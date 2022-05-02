@@ -1,3 +1,5 @@
+.load libsimple
+
 CREATE TABLE IF NOT EXISTS docs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pid INTEGER NOT NULL DEFAULT 0,
@@ -13,3 +15,7 @@ CREATE INDEX IF NOT EXISTS docs_idx_pid ON docs(pid);
 CREATE INDEX IF NOT EXISTS docs_idx_tag ON docs(tag);
 CREATE INDEX IF NOT EXISTS docs_idx_locale ON docs(locale);
 CREATE INDEX IF NOT EXISTS docs_idx_version ON docs(version);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS d USING fts5(id, pid, gid, tag, locale, version, content, tokenize = 'simple');
+
+-- INSERT INTO d SELECT * FROM docs;
