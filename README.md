@@ -28,6 +28,10 @@ OPTIONS:
     -v, --version <VERSION>    version
 ```
 
+```shell
+RUST_LOG=debug cargo run -- build -p example/cn/v1.0 -l cn -v v1.0
+```
+
 * `tiny-docs-se server --help`
 
 ```shell

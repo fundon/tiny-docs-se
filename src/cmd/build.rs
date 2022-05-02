@@ -32,6 +32,25 @@ pub fn execute(root: PathBuf, locale: String, version: String) -> Result<()> {
         conn.load_extension(db_path.join("libsimple"), None)?;
     }
 
+    conn.execute_batch("BEGIN;
+        CREATE TABLE IF NOT EXISTS docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pid INTEGER NOT NULL DEFAULT 0,
+            gid TEXT NOT NULL,
+            tag INTEGER NOT NULL, -- [1,7]
+            locale VARCHAR(32) NOT NULL,
+            version VARCHAR(32) NOT NULL,
+            content TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS docs_idx_gid ON docs(gid);
+        CREATE INDEX IF NOT EXISTS docs_idx_pid ON docs(pid);
+        CREATE INDEX IF NOT EXISTS docs_idx_tag ON docs(tag);
+        CREATE INDEX IF NOT EXISTS docs_idx_locale ON docs(locale);
+        CREATE INDEX IF NOT EXISTS docs_idx_version ON docs(version);
+        CREATE VIRTUAL TABLE IF NOT EXISTS d USING fts5(id, pid, gid, tag, locale, version, content, tokenize = 'simple');
+        COMMIT;"
+    )?;
+
     conn.execute(
         "DELETE FROM docs WHERE locale = ?1 AND version = ?2",
         params![locale, version],
